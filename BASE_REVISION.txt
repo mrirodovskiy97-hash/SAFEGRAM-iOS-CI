@@ -1,0 +1,5 @@
+Repository: https://github.com/maksakks/Ayugram-iOS
+Branch: master
+Pinned revision inspected: 2f746090b09b20695886fd52706a76d01b68ecaa
+Upstream family: Swiftgram/Telegram-iOS <- TelegramMessenger/Telegram-iOS
+Package: SAFEGRAM iOS overlay v0.1

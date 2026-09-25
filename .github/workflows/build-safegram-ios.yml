@@ -1,0 +1,254 @@
+name: SAFEGRAM iOS cloud build
+
+on:
+  workflow_dispatch:
+    inputs:
+      try_unsigned_device_ipa:
+        description: "After Simulator succeeds, also try to build an unsigned arm64 IPA for AltStore/Sideloadly"
+        required: true
+        default: true
+        type: boolean
+  push:
+    paths:
+      - "SafeGramCore/**"
+      - "SafeGramUI/**"
+      - "scripts/**"
+      - "ci/**"
+      - "config/**"
+      - ".github/workflows/build-safegram-ios.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: safegram-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AYUGRAM_REPO: https://github.com/maksakks/Ayugram-iOS.git
+  AYUGRAM_SHA: 2f746090b09b20695886fd52706a76d01b68ecaa
+  XCODE_VERSION: "16.2"
+  CI_BUNDLE_ID: com.safegram.cloudbuild
+  CI_TEAM_ID: "0000000000"
+  CI_API_ID: "12345"
+  CI_API_HASH: "0123456789abcdef0123456789abcdef"
+
+jobs:
+  simulator:
+    name: Compile SAFEGRAM for iOS Simulator
+    runs-on: macos-15
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout SAFEGRAM overlay
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        shell: bash
+        run: |
+          set -euxo pipefail
+          XCODE="/Applications/Xcode_${XCODE_VERSION}.app"
+          if [[ ! -d "$XCODE" ]]; then
+            echo "Required $XCODE is not installed on this runner. Available Xcodes:"
+            ls -1 /Applications | grep '^Xcode' || true
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          sw_vers
+
+      - name: Overlay self-checks
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile scripts/patch_ayugram.py scripts/make_safegram_config.py ci/patch_make_unsigned_device.py
+          bash -n scripts/apply_safegram_overlay.sh
+          echo "SAFEGRAM MINIMAL CHECKS: OK" | tee safegram-overlay-checks.log
+
+      - name: Clone pinned AyuGram and apply SAFEGRAM
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$RUNNER_TEMP/Ayugram-iOS"
+          git clone --recursive "$AYUGRAM_REPO" "$ROOT"
+          git -C "$ROOT" checkout "$AYUGRAM_SHA"
+          git -C "$ROOT" submodule update --init --recursive --jobs 8
+          ./scripts/apply_safegram_overlay.sh "$ROOT"
+          test -f "$ROOT/Swiftgram/SafeGramCore/BUILD"
+          test -f "$ROOT/Swiftgram/SafeGramUI/BUILD"
+          grep -q "SAFEGRAM" "$ROOT/Swiftgram/SGSettingsUI/Sources/SGSettingsController.swift"
+          echo "AYUGRAM_ROOT=$ROOT" >> "$GITHUB_ENV"
+
+      - name: Generate compile-only config
+        shell: bash
+        run: |
+          set -euxo pipefail
+          CONFIG="$RUNNER_TEMP/safegram-ci.json"
+          ./scripts/make_safegram_config.py \
+            --api-id "$CI_API_ID" \
+            --api-hash "$CI_API_HASH" \
+            --team-id "$CI_TEAM_ID" \
+            --bundle-id "$CI_BUNDLE_ID" \
+            --output "$CONFIG"
+          python3 -m json.tool "$CONFIG" >/dev/null
+          echo "SAFEGRAM_CONFIG=$CONFIG" >> "$GITHUB_ENV"
+
+      - name: Restore Bazel build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/telegram-bazel-cache
+          key: safegram-bazel-${{ runner.os }}-${{ runner.arch }}-${{ env.AYUGRAM_SHA }}-xcode-${{ env.XCODE_VERSION }}
+
+      - name: Build Simulator with Bazel
+        id: simbuild
+        shell: bash
+        run: |
+          set -o pipefail
+          cd "$AYUGRAM_ROOT"
+          mkdir -p "$HOME/telegram-bazel-cache" "$GITHUB_WORKSPACE/ci-output"
+          python3 build-system/Make/Make.py \
+            --cacheDir="$HOME/telegram-bazel-cache" \
+            build \
+            --configurationPath="$SAFEGRAM_CONFIG" \
+            --xcodeManagedCodesigning \
+            --buildNumber=10001 \
+            --configuration=debug_sim_arm64 \
+            2>&1 | tee "$GITHUB_WORKSPACE/ci-output/simulator-build.log"
+
+      - name: Record environment
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p ci-output
+          {
+            echo "AYUGRAM_SHA=$AYUGRAM_SHA"
+            echo "runner=$(uname -a)"
+            xcodebuild -version || true
+            python3 --version || true
+          } > ci-output/environment.txt
+
+      - name: Upload Simulator logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SAFEGRAM-simulator-build-${{ github.run_number }}
+          path: |
+            ci-output/**
+            safegram-overlay-checks.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  unsigned-device-ipa:
+    name: Try unsigned arm64 IPA
+    needs: simulator
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.try_unsigned_device_ipa }}
+    runs-on: macos-15
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout SAFEGRAM overlay
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        shell: bash
+        run: |
+          set -euxo pipefail
+          XCODE="/Applications/Xcode_${XCODE_VERSION}.app"
+          [[ -d "$XCODE" ]] || { ls -1 /Applications | grep '^Xcode' || true; exit 1; }
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+
+      - name: Clone pinned AyuGram and apply SAFEGRAM
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$RUNNER_TEMP/Ayugram-iOS"
+          git clone --recursive "$AYUGRAM_REPO" "$ROOT"
+          git -C "$ROOT" checkout "$AYUGRAM_SHA"
+          git -C "$ROOT" submodule update --init --recursive --jobs 8
+          ./scripts/apply_safegram_overlay.sh "$ROOT"
+          test -f "$ROOT/Swiftgram/SafeGramCore/BUILD"
+          test -f "$ROOT/Swiftgram/SafeGramUI/BUILD"
+          grep -q "SAFEGRAM" "$ROOT/Swiftgram/SGSettingsUI/Sources/SGSettingsController.swift"
+          echo "AYUGRAM_ROOT=$ROOT" >> "$GITHUB_ENV"
+
+      - name: Generate Telegram config
+        shell: bash
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          SAFEGRAM_BUNDLE_ID: ${{ secrets.SAFEGRAM_BUNDLE_ID }}
+        run: |
+          set -euxo pipefail
+          API_ID="${TELEGRAM_API_ID:-$CI_API_ID}"
+          API_HASH="${TELEGRAM_API_HASH:-$CI_API_HASH}"
+          BUNDLE_ID="${SAFEGRAM_BUNDLE_ID:-com.safegram.sideload}"
+          CONFIG="$RUNNER_TEMP/safegram-device.json"
+          ./scripts/make_safegram_config.py \
+            --api-id "$API_ID" \
+            --api-hash "$API_HASH" \
+            --team-id "$CI_TEAM_ID" \
+            --bundle-id "$BUNDLE_ID" \
+            --output "$CONFIG"
+          echo "SAFEGRAM_CONFIG=$CONFIG" >> "$GITHUB_ENV"
+          if [[ -z "${TELEGRAM_API_ID:-}" || -z "${TELEGRAM_API_HASH:-}" ]]; then
+            echo "WARNING: TELEGRAM_API_ID/HASH secrets are not set. IPA, if built, is compile-test only and Telegram login will not work." | tee "$GITHUB_WORKSPACE/device-credentials-warning.txt"
+          fi
+
+      - name: Enable no-provisioning device build in cloned upstream
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ./ci/patch_make_unsigned_device.py "$AYUGRAM_ROOT/build-system/Make/Make.py"
+          grep -n "SAFEGRAM CI unsigned device build" "$AYUGRAM_ROOT/build-system/Make/Make.py"
+
+      - name: Restore Bazel build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/telegram-bazel-cache
+          key: safegram-bazel-${{ runner.os }}-${{ runner.arch }}-${{ env.AYUGRAM_SHA }}-xcode-${{ env.XCODE_VERSION }}
+
+      - name: Build unsigned arm64 IPA
+        id: devicebuild
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p "$HOME/telegram-bazel-cache" "$GITHUB_WORKSPACE/ci-output-device" "$RUNNER_TEMP/device-artifacts"
+          cd "$AYUGRAM_ROOT"
+          python3 build-system/Make/Make.py \
+            --cacheDir="$HOME/telegram-bazel-cache" \
+            build \
+            --configurationPath="$SAFEGRAM_CONFIG" \
+            --xcodeManagedCodesigning \
+            --buildNumber=10002 \
+            --configuration=release_arm64 \
+            --outputBuildArtifactsPath="$RUNNER_TEMP/device-artifacts" \
+            2>&1 | tee "$GITHUB_WORKSPACE/ci-output-device/device-build.log"
+
+      - name: Collect IPA if produced
+        if: always()
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ci-output-device
+          find "$RUNNER_TEMP/device-artifacts" -maxdepth 2 -type f -print 2>/dev/null | tee ci-output-device/artifacts-list.txt || true
+          IPA="$(find "$RUNNER_TEMP/device-artifacts" -type f -name '*.ipa' -print -quit 2>/dev/null || true)"
+          if [[ -n "$IPA" ]]; then
+            cp "$IPA" ci-output-device/SAFEGRAM-UNSIGNED.ipa
+            shasum -a 256 ci-output-device/SAFEGRAM-UNSIGNED.ipa > ci-output-device/SAFEGRAM-UNSIGNED.ipa.sha256
+            echo "IPA_CREATED=1" >> "$GITHUB_ENV"
+          else
+            echo "No IPA was produced. Read device-build.log; Simulator job is the authoritative compile check." | tee ci-output-device/NO_IPA.txt
+            echo "IPA_CREATED=0" >> "$GITHUB_ENV"
+          fi
+          [[ -f device-credentials-warning.txt ]] && cp device-credentials-warning.txt ci-output-device/ || true
+
+      - name: Upload device IPA/logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SAFEGRAM-device-build-${{ github.run_number }}
+          path: ci-output-device/**
+          if-no-files-found: warn
+          retention-days: 14
