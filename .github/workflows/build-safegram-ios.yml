@@ -27,7 +27,7 @@ concurrency:
 env:
   AYUGRAM_REPO: https://github.com/maksakks/Ayugram-iOS.git
   AYUGRAM_SHA: 2f746090b09b20695886fd52706a76d01b68ecaa
-  XCODE_VERSION: "16.2"
+  XCODE_VERSION: "16.4"
   CI_BUNDLE_ID: com.safegram.cloudbuild
   CI_TEAM_ID: "0000000000"
   CI_API_ID: "12345"
