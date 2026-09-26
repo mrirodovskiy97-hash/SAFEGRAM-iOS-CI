@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          python3 -m py_compile scripts/patch_ayugram.py scripts/patch_tabbar_compat.py scripts/make_safegram_config.py ci/patch_make_unsigned_device.py
+          python3 -m py_compile scripts/patch_ayugram.py scripts/patch_tabbar_compat.py scripts/make_safegram_config.py ci/patch_make_unsigned_device.py ci/patch_rules_apple_unsigned.py
           bash -n scripts/apply_safegram_overlay.sh
           echo "SAFEGRAM MINIMAL CHECKS: OK" | tee safegram-overlay-checks.log
 
@@ -207,7 +207,10 @@ jobs:
           set -euxo pipefail
           ./ci/patch_make_unsigned_device.py "$AYUGRAM_ROOT/build-system/Make/Make.py"
           ./ci/patch_bazel_swift_opts.py "$AYUGRAM_ROOT/build-system/Make/Make.py"
+          ./ci/patch_simulator_watch.py "$AYUGRAM_ROOT"
+          ./ci/patch_rules_apple_unsigned.py "$AYUGRAM_ROOT"
           grep -n "SAFEGRAM CI unsigned device build" "$AYUGRAM_ROOT/build-system/Make/Make.py"
+          grep -n "SAFEGRAM CI unsigned device" "$AYUGRAM_ROOT/build-system/bazel-rules/rules_apple/apple/internal/partials/provisioning_profile.bzl"
 
       - name: Restore Bazel build cache
         uses: actions/cache@v4
@@ -217,7 +220,6 @@ jobs:
 
       - name: Build unsigned arm64 IPA
         id: devicebuild
-        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
