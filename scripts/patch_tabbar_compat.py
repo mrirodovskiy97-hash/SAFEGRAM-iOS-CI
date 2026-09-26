@@ -10,7 +10,8 @@ if len(sys.argv) != 2:
 root = Path(sys.argv[1]).resolve()
 controller = root / "submodules/TabBarUI/Sources/TabBarController.swift"
 node = root / "submodules/TabBarUI/Sources/TabBarNode.swift"
-for path in (controller, node):
+root_controller = root / "submodules/TelegramUI/Sources/TelegramRootController.swift"
+for path in (controller, node, root_controller):
     if not path.is_file():
         raise SystemExit(f"missing expected upstream file: {path}")
 
@@ -41,9 +42,24 @@ if "SGSimpleSettings.shared.showTabNames" in node_text and "import SGSimpleSetti
     node_text = node_text.replace(anchor, anchor + "import SGSimpleSettings\n", 1)
     node.write_text(node_text, encoding="utf-8")
 
+
+root_text = root_controller.read_text(encoding="utf-8")
+root_original = root_text
+root_text = root_text.replace("    private var showTabNames: Bool\n    \n", "", 1)
+root_text = root_text.replace("    public init(showTabNames: Bool, context: AccountContext) {", "    public init(context: AccountContext) {", 1)
+root_text = root_text.replace("        self.showTabNames = showTabNames\n        \n", "", 1)
+root_text = root_text.replace("TabBarControllerImpl(showTabNames: self.showTabNames, navigationBarPresentationData:", "TabBarControllerImpl(navigationBarPresentationData:", 1)
+if root_text != root_original:
+    backup_once(root_controller)
+    if "SGSimpleSettings" not in root_text.replace("import SGSimpleSettings\n", ""):
+        root_text = root_text.replace("import SGSimpleSettings\n", "", 1)
+    root_controller.write_text(root_text, encoding="utf-8")
+
 if old in controller.read_text(encoding="utf-8"):
     raise SystemExit("TabBarController compatibility patch incomplete")
 if "SGSimpleSettings.shared.showTabNames" in node.read_text(encoding="utf-8") and "import SGSimpleSettings\n" not in node.read_text(encoding="utf-8"):
     raise SystemExit("TabBarNode compatibility patch incomplete")
+if "showTabNames" in root_controller.read_text(encoding="utf-8"):
+    raise SystemExit("TelegramRootController compatibility patch incomplete")
 
 print("AyuGram TabBarUI compatibility patch: OK")
