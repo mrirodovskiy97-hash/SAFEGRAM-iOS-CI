@@ -107,6 +107,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/ci/patch_make_unsigned_device.py" "$AYUGRAM_ROOT/build-system/Make/Make.py"
           python3 "$GITHUB_WORKSPACE/ci/patch_simulator_watch.py" "$AYUGRAM_ROOT"
           python3 "$GITHUB_WORKSPACE/ci/patch_bazel_swift_opts.py" "$AYUGRAM_ROOT/build-system/Make/Make.py"
+          python3 "$GITHUB_WORKSPACE/ci/patch_custom_target_cpu.py" "$AYUGRAM_ROOT/build-system/Make/Make.py"
           grep -n "SAFEGRAM CI unsigned device build" "$AYUGRAM_ROOT/build-system/Make/Make.py"
           grep -n "SAFEGRAM CI simulator: disable Watch target" "$AYUGRAM_ROOT/Telegram/BUILD"
           cd "$AYUGRAM_ROOT"
@@ -117,7 +118,8 @@ jobs:
             //Swiftgram/SafeGramCore:SafeGramCore \
             //Swiftgram/SafeGramUI:SafeGramUI \
             //Swiftgram/SGSettingsUI:SGSettingsUI \
-            //submodules/TelegramCore:TelegramCore; do
+            //submodules/TelegramCore:TelegramCore \
+            //submodules/TelegramUI:TelegramUI; do
             echo "===== PREFLIGHT $TARGET =====" | tee -a "$GITHUB_WORKSPACE/ci-output/simulator-build.log"
             python3 build-system/Make/Make.py \
               --cacheDir="$HOME/telegram-bazel-cache" \
