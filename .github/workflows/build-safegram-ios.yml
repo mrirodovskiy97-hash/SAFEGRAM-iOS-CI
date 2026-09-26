@@ -105,7 +105,9 @@ jobs:
         run: |
           set -o pipefail
           python3 "$GITHUB_WORKSPACE/ci/patch_make_unsigned_device.py" "$AYUGRAM_ROOT/build-system/Make/Make.py"
+          python3 "$GITHUB_WORKSPACE/ci/patch_simulator_watch.py" "$AYUGRAM_ROOT"
           grep -n "SAFEGRAM CI unsigned device build" "$AYUGRAM_ROOT/build-system/Make/Make.py"
+          grep -n "SAFEGRAM CI simulator: disable Watch target" "$AYUGRAM_ROOT/Telegram/BUILD"
           cd "$AYUGRAM_ROOT"
           mkdir -p "$HOME/telegram-bazel-cache" "$GITHUB_WORKSPACE/ci-output"
           python3 build-system/Make/Make.py \
