@@ -111,14 +111,24 @@ jobs:
           grep -n "SAFEGRAM CI simulator: disable Watch target" "$AYUGRAM_ROOT/Telegram/BUILD"
           cd "$AYUGRAM_ROOT"
           mkdir -p "$HOME/telegram-bazel-cache" "$GITHUB_WORKSPACE/ci-output"
-          python3 build-system/Make/Make.py \
-            --cacheDir="$HOME/telegram-bazel-cache" \
-            build \
-            --configurationPath="$SAFEGRAM_CONFIG" \
-            --xcodeManagedCodesigning \
-            --buildNumber=10001 \
-            --configuration=debug_sim_arm64 \
-            2>&1 | tee "$GITHUB_WORKSPACE/ci-output/simulator-build.log"
+          : > "$GITHUB_WORKSPACE/ci-output/simulator-build.log"
+          for TARGET in \
+            //submodules/TabBarUI:TabBarUI \
+            //Swiftgram/SafeGramCore:SafeGramCore \
+            //Swiftgram/SafeGramUI:SafeGramUI \
+            //Swiftgram/SGSettingsUI:SGSettingsUI \
+            //submodules/TelegramCore:TelegramCore; do
+            echo "===== PREFLIGHT $TARGET =====" | tee -a "$GITHUB_WORKSPACE/ci-output/simulator-build.log"
+            python3 build-system/Make/Make.py \
+              --cacheDir="$HOME/telegram-bazel-cache" \
+              build \
+              --configurationPath="$SAFEGRAM_CONFIG" \
+              --xcodeManagedCodesigning \
+              --buildNumber=10001 \
+              --configuration=debug_sim_arm64 \
+              --target="$TARGET" \
+              2>&1 | tee -a "$GITHUB_WORKSPACE/ci-output/simulator-build.log"
+          done
 
       - name: Record environment
         if: always()
