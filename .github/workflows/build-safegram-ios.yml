@@ -43,7 +43,7 @@ jobs:
       - name: Checkout SAFEGRAM overlay
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16.2
+      - name: Select Xcode 16.4
         shell: bash
         run: |
           set -euxo pipefail
@@ -74,6 +74,7 @@ jobs:
           git -C "$ROOT" checkout "$AYUGRAM_SHA"
           git -C "$ROOT" submodule update --init --recursive --jobs 8
           ./scripts/apply_safegram_overlay.sh "$ROOT"
+          python3 ./ci/patch_xcode_version.py "$ROOT" "$XCODE_VERSION"
           test -f "$ROOT/Swiftgram/SafeGramCore/BUILD"
           test -f "$ROOT/Swiftgram/SafeGramUI/BUILD"
           grep -q "SAFEGRAM" "$ROOT/Swiftgram/SGSettingsUI/Sources/SGSettingsController.swift"
@@ -154,7 +155,7 @@ jobs:
       - name: Checkout SAFEGRAM overlay
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16.2
+      - name: Select Xcode 16.4
         shell: bash
         run: |
           set -euxo pipefail
@@ -172,6 +173,7 @@ jobs:
           git -C "$ROOT" checkout "$AYUGRAM_SHA"
           git -C "$ROOT" submodule update --init --recursive --jobs 8
           ./scripts/apply_safegram_overlay.sh "$ROOT"
+          python3 ./ci/patch_xcode_version.py "$ROOT" "$XCODE_VERSION"
           test -f "$ROOT/Swiftgram/SafeGramCore/BUILD"
           test -f "$ROOT/Swiftgram/SafeGramUI/BUILD"
           grep -q "SAFEGRAM" "$ROOT/Swiftgram/SGSettingsUI/Sources/SGSettingsController.swift"
