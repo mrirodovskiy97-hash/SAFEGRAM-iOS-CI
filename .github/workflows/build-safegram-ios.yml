@@ -29,8 +29,8 @@ env:
   XCODE_VERSION: "16.4"
   CI_BUNDLE_ID: com.safegram.cloudbuild
   CI_TEAM_ID: "0000000000"
-  CI_API_ID: "12345"
-  CI_API_HASH: "0123456789abcdef0123456789abcdef"
+  CI_API_ID: "17349"
+  CI_API_HASH: "344583e45741c457fe1862106095a5eb"
 
 jobs:
   simulator:
