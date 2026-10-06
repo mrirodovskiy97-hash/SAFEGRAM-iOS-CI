@@ -82,6 +82,8 @@ jobs:
           test -f "$ROOT/Swiftgram/SafeGramCore/BUILD"
           test -f "$ROOT/Swiftgram/SafeGramUI/BUILD"
           grep -q "SAFEGRAM" "$ROOT/Swiftgram/SGSettingsUI/Sources/SGSettingsController.swift"
+          grep -Fq '"Tour.Title1" = "SAFEGRAM";' "$ROOT/Telegram/Telegram-iOS/en.lproj/Localizable.strings"
+          grep -Fq 'replacingOccurrences(of: "Swiftgram", with: "SAFEGRAM")' "$ROOT/Swiftgram/SGStrings/Sources/LocalizationManager.swift"
           echo "AYUGRAM_ROOT=$ROOT" >> "$GITHUB_ENV"
 
       - name: Generate compile-only config
@@ -196,6 +198,8 @@ jobs:
           test -f "$ROOT/Swiftgram/SafeGramCore/BUILD"
           test -f "$ROOT/Swiftgram/SafeGramUI/BUILD"
           grep -q "SAFEGRAM" "$ROOT/Swiftgram/SGSettingsUI/Sources/SGSettingsController.swift"
+          grep -Fq '"Tour.Title1" = "SAFEGRAM";' "$ROOT/Telegram/Telegram-iOS/en.lproj/Localizable.strings"
+          grep -Fq 'replacingOccurrences(of: "Swiftgram", with: "SAFEGRAM")' "$ROOT/Swiftgram/SGStrings/Sources/LocalizationManager.swift"
           echo "AYUGRAM_ROOT=$ROOT" >> "$GITHUB_ENV"
 
       - name: Generate Telegram config
