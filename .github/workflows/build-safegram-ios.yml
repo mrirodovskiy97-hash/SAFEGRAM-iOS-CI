@@ -3,6 +3,11 @@ name: SAFEGRAM iOS cloud build
 on:
   workflow_dispatch:
     inputs:
+      strict_clean_simulator:
+        description: "Run Simulator acceptance with a fresh Bazel disk cache"
+        required: true
+        default: true
+        type: boolean
       try_unsigned_device_ipa:
         description: "After Simulator succeeds, also try to build an unsigned arm64 IPA for AltStore/Sideloadly"
         required: true
@@ -60,7 +65,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          python3 -m py_compile scripts/patch_ayugram.py scripts/patch_tabbar_compat.py scripts/make_safegram_config.py ci/patch_make_unsigned_device.py ci/patch_rules_apple_unsigned.py
+          python3 -m py_compile scripts/patch_ayugram.py scripts/patch_tabbar_compat.py scripts/patch_safegram_brand.py scripts/make_safegram_config.py ci/patch_make_unsigned_device.py ci/patch_rules_apple_unsigned.py ci/verify_ipa_brand.py ci/simulator_smoke.py
           bash -n scripts/apply_safegram_overlay.sh
           echo "SAFEGRAM MINIMAL CHECKS: OK" | tee safegram-overlay-checks.log
 
@@ -94,10 +99,23 @@ jobs:
           echo "SAFEGRAM_CONFIG=$CONFIG" >> "$GITHUB_ENV"
 
       - name: Restore Bazel build cache
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.strict_clean_simulator }}
         uses: actions/cache@v4
         with:
           path: ~/telegram-bazel-cache
           key: safegram-bazel-${{ runner.os }}-${{ runner.arch }}-${{ env.AYUGRAM_SHA }}-xcode-${{ env.XCODE_VERSION }}
+
+      - name: Select Simulator build cache
+        shell: bash
+        run: |
+          set -euxo pipefail
+          CACHE_DIR="$HOME/telegram-bazel-cache"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.strict_clean_simulator }}" == "true" ]]; then
+            CACHE_DIR="$RUNNER_TEMP/safegram-clean-bazel-cache"
+            rm -rf "$CACHE_DIR"
+          fi
+          mkdir -p "$CACHE_DIR"
+          echo "SAFEGRAM_BAZEL_CACHE=$CACHE_DIR" >> "$GITHUB_ENV"
 
       - name: Build Simulator with Bazel
         id: simbuild
@@ -110,15 +128,17 @@ jobs:
           grep -n "SAFEGRAM CI unsigned device build" "$AYUGRAM_ROOT/build-system/Make/Make.py"
           grep -n "SAFEGRAM CI simulator: disable Watch target" "$AYUGRAM_ROOT/Telegram/BUILD"
           cd "$AYUGRAM_ROOT"
-          mkdir -p "$HOME/telegram-bazel-cache" "$GITHUB_WORKSPACE/ci-output"
+          mkdir -p "$SAFEGRAM_BAZEL_CACHE" "$GITHUB_WORKSPACE/ci-output"
           python3 build-system/Make/Make.py \
-            --cacheDir="$HOME/telegram-bazel-cache" \
+            --cacheDir="$SAFEGRAM_BAZEL_CACHE" \
             build \
             --configurationPath="$SAFEGRAM_CONFIG" \
             --xcodeManagedCodesigning \
             --buildNumber=10001 \
             --configuration=debug_sim_arm64 \
             2>&1 | tee "$GITHUB_WORKSPACE/ci-output/simulator-build.log"
+          python3 "$GITHUB_WORKSPACE/ci/verify_ipa_brand.py" "$AYUGRAM_ROOT/bazel-bin/Telegram/Swiftgram.ipa"
+          python3 "$GITHUB_WORKSPACE/ci/simulator_smoke.py" "$AYUGRAM_ROOT/bazel-bin/Telegram/Swiftgram.ipa" "$GITHUB_WORKSPACE/ci-output"
 
       - name: Record environment
         if: always()
@@ -234,6 +254,7 @@ jobs:
             --configuration=release_arm64 \
             --outputBuildArtifactsPath="$RUNNER_TEMP/device-artifacts" \
             2>&1 | tee "$GITHUB_WORKSPACE/ci-output-device/device-build.log"
+          python3 "$GITHUB_WORKSPACE/ci/verify_ipa_brand.py" "$AYUGRAM_ROOT/bazel-bin/Telegram/Swiftgram.ipa"
 
       - name: Collect IPA if produced
         if: always()
