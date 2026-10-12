@@ -8,6 +8,11 @@ on:
         required: true
         default: true
         type: boolean
+      require_own_telegram_credentials:
+        description: "Reject device build unless both personal Telegram API secrets exist"
+        required: true
+        default: false
+        type: boolean
       try_unsigned_device_ipa:
         description: "After Simulator succeeds, also try to build an unsigned arm64 IPA for AltStore/Sideloadly"
         required: true
@@ -65,8 +70,9 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          python3 -m py_compile scripts/patch_ayugram.py scripts/patch_tabbar_compat.py scripts/patch_safegram_brand.py scripts/make_safegram_config.py ci/patch_make_unsigned_device.py ci/patch_rules_apple_unsigned.py ci/verify_ipa_brand.py ci/simulator_smoke.py
+          python3 -m py_compile scripts/patch_ayugram.py scripts/patch_tabbar_compat.py scripts/patch_safegram_brand.py scripts/make_safegram_config.py ci/patch_make_unsigned_device.py ci/patch_rules_apple_unsigned.py ci/verify_ipa_brand.py ci/simulator_smoke.py ci/prepare_device_config.py ci/test_prepare_device_config.py
           bash -n scripts/apply_safegram_overlay.sh
+          python3 -m unittest -v ci.test_prepare_device_config
           echo "SAFEGRAM MINIMAL CHECKS: OK" | tee safegram-overlay-checks.log
 
       - name: Clone pinned AyuGram and apply SAFEGRAM
@@ -202,27 +208,23 @@ jobs:
           grep -Fq 'replacingOccurrences(of: "Swiftgram", with: "SAFEGRAM")' "$ROOT/Swiftgram/SGStrings/Sources/LocalizationManager.swift"
           echo "AYUGRAM_ROOT=$ROOT" >> "$GITHUB_ENV"
 
-      - name: Generate Telegram config
+      - name: Generate device config without logging Telegram secrets
         shell: bash
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
           SAFEGRAM_BUNDLE_ID: ${{ secrets.SAFEGRAM_BUNDLE_ID }}
+          REQUIRE_OWN_TELEGRAM_CREDENTIALS: ${{ inputs.require_own_telegram_credentials }}
         run: |
-          set -euxo pipefail
-          API_ID="${TELEGRAM_API_ID:-$CI_API_ID}"
-          API_HASH="${TELEGRAM_API_HASH:-$CI_API_HASH}"
-          BUNDLE_ID="${SAFEGRAM_BUNDLE_ID:-com.safegram.sideload}"
+          # Do not use 'set -x': API secrets must not appear in Actions logs.
+          set -euo pipefail
           CONFIG="$RUNNER_TEMP/safegram-device.json"
-          ./scripts/make_safegram_config.py \
-            --api-id "$API_ID" \
-            --api-hash "$API_HASH" \
-            --team-id "$CI_TEAM_ID" \
-            --bundle-id "$BUNDLE_ID" \
-            --output "$CONFIG"
+          python3 ./ci/prepare_device_config.py \
+            --output "$CONFIG" \
+            --status-output "$GITHUB_WORKSPACE/device-credentials-status.txt"
           echo "SAFEGRAM_CONFIG=$CONFIG" >> "$GITHUB_ENV"
-          if [[ -z "${TELEGRAM_API_ID:-}" || -z "${TELEGRAM_API_HASH:-}" ]]; then
-            echo "WARNING: TELEGRAM_API_ID/HASH secrets are not set. IPA, if built, is compile-test only and Telegram login will not work." | tee "$GITHUB_WORKSPACE/device-credentials-warning.txt"
+          if grep -q 'DEVICE_CREDENTIAL_MODE=TELEGRAM_TEST_ONLY' device-credentials-status.txt; then
+            echo "TEST ONLY: Telegram login is not supported by this IPA." | tee device-credentials-warning.txt
           fi
 
       - name: Enable no-provisioning device build in cloned upstream
@@ -277,6 +279,7 @@ jobs:
             echo "IPA_CREATED=0" >> "$GITHUB_ENV"
           fi
           [[ -f device-credentials-warning.txt ]] && cp device-credentials-warning.txt ci-output-device/ || true
+          [[ -f device-credentials-status.txt ]] && cp device-credentials-status.txt ci-output-device/ || true
 
       - name: Upload device IPA/logs
         if: always()
