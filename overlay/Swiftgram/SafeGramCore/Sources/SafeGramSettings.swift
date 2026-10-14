@@ -23,11 +23,11 @@ public final class SafeGramSettings {
         defaults.register(defaults: [
             Key.enabled: true,
             Key.securityCenter: true,
-            Key.relationshipRadar: true,
-            Key.profileTimeline: true,
-            Key.forensics: true,
+            Key.relationshipRadar: false,
+            Key.profileTimeline: false,
+            Key.forensics: false,
             Key.leakGuard: true,
-            Key.fingerprint: true,
+            Key.fingerprint: false,
             Key.safeExit: true,
             Key.faceID: true,
             Key.locked: false

@@ -15,6 +15,7 @@ private final class SafeGramSecurityCenterNode: ASDisplayNode {
     var onExport: (() -> Void)?
     var onLegacyImport: (() -> Void)?
     var onCreateCanary: (() -> Void)?
+    var onClearHistory: (() -> Void)?
     private let scroll = UIScrollView()
     private let stack = UIStackView()
     private var targets: [SafeGramToggleTarget] = []
@@ -69,16 +70,17 @@ private final class SafeGramSecurityCenterNode: ASDisplayNode {
         stack.addArrangedSubview(label("Saved events: \(SafeGramForensicsStore.shared.eventCount(accountId: accountId)) · Findings: \(SafeGramForensicsStore.shared.findingCount(accountId: accountId))"))
         let settings = SafeGramSettings.shared
         toggle("SAFEGRAM enabled", value: settings.enabled) { settings.enabled = $0 }
-        toggle("Message Forensics", value: settings.forensicsEnabled) { settings.forensicsEnabled = $0 }
-        toggle("Relationship Radar", value: settings.relationshipRadarEnabled) { settings.relationshipRadarEnabled = $0 }
-        toggle("Profile Time Machine", value: settings.profileTimelineEnabled) { settings.profileTimelineEnabled = $0 }
-        toggle("Leak Guard and URL checks", value: settings.leakGuardEnabled) { settings.leakGuardEnabled = $0 }
-        toggle("Identity Fingerprint", value: settings.fingerprintEnabled) { settings.fingerprintEnabled = $0 }
+        toggle("Save message history", value: settings.forensicsEnabled) { settings.forensicsEnabled = $0 }
+        stack.addArrangedSubview(label("Optional: stores message text locally on this device. Disabled by default. Disable it to stop collecting new history; existing records remain until deleted.", size: 13))
+        toggle("Relationship Radar (local metadata)", value: settings.relationshipRadarEnabled) { settings.relationshipRadarEnabled = $0 }
+        toggle("Profile Time Machine (local history)", value: settings.profileTimelineEnabled) { settings.profileTimelineEnabled = $0 }
+        toggle("Link and secret-pattern warnings", value: settings.leakGuardEnabled) { settings.leakGuardEnabled = $0 }
+        toggle("Writing-style monitor (local samples)", value: settings.fingerprintEnabled) { settings.fingerprintEnabled = $0 }
         toggle("Safe Exit", value: settings.safeExitEnabled) { settings.safeExitEnabled = $0 }
-        stack.addArrangedSubview(label("Unlock uses Face ID or the device code when available.", size: 13))
+        stack.addArrangedSubview(label("Safe Exit locks only this app on this iPhone. It does not log out Telegram on any device. Unlock uses Face ID or the device passcode.", size: 13))
 
         let button = UIButton(type: .system)
-        button.setTitle("Safe Exit · Lock app", for: .normal)
+        button.setTitle("Lock SAFEGRAM on this device", for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
         button.addTarget(self, action: #selector(safeExit), for: .touchUpInside)
         stack.addArrangedSubview(button)
@@ -94,13 +96,18 @@ private final class SafeGramSecurityCenterNode: ASDisplayNode {
         canaryButton.setTitle("Create Canary marker", for: .normal)
         canaryButton.addTarget(self, action: #selector(createCanary), for: .touchUpInside)
         stack.addArrangedSubview(canaryButton)
+        let clearHistoryButton = UIButton(type: .system)
+        clearHistoryButton.setTitle("Delete locally saved message history…", for: .normal)
+        clearHistoryButton.addTarget(self, action: #selector(clearHistory), for: .touchUpInside)
+        stack.addArrangedSubview(clearHistoryButton)
+        stack.addArrangedSubview(label("Warnings are heuristic. SAFEGRAM does not promise end-to-end encryption for ordinary Telegram cloud chats, nor does it guarantee that links or files are safe.", size: 13))
         stack.addArrangedSubview(label("Recent findings", size: 20))
         let findings = SafeGramForensicsStore.shared.findings(accountId: accountId, limit: 20)
         if findings.isEmpty { stack.addArrangedSubview(label("No findings yet.")) }
         for finding in findings {
             stack.addArrangedSubview(label("[\(finding.severity)] \(finding.title): \(finding.detail)", size: 14))
         }
-        stack.addArrangedSubview(label("Recent message history", size: 20))
+        stack.addArrangedSubview(label("Locally saved message history (optional)", size: 20))
         for event in SafeGramForensicsStore.shared.history(accountId: accountId).suffix(20).reversed() {
             stack.addArrangedSubview(label("\(event.kind.rawValue) · chat \(event.chatId) / \(event.messageId): \(String(event.text.prefix(140)))", size: 14))
         }
@@ -111,6 +118,7 @@ private final class SafeGramSecurityCenterNode: ASDisplayNode {
         setNeedsLayout()
     }
 
+    @objc private func clearHistory() { onClearHistory?() }
     @objc private func safeExit() { SafeGramLockManager.shared.safeExit() }
     @objc private func exportEvidence() { onExport?() }
     @objc private func importLegacy() { onLegacyImport?() }
@@ -152,6 +160,27 @@ public final class SafeGramSecurityCenterController: ViewController {
                     node?.refresh()
                     self.showResult("Imported \(count) files. Originals remain available for rollback.")
                 } catch { self.showResult(error.localizedDescription) }
+            }))
+            self.present(alert, animated: true)
+        }
+        node.onClearHistory = { [weak self, weak node] in
+            guard let self else { return }
+            let alert = UIAlertController(
+                title: "Delete locally saved message history?",
+                message: "This only deletes SAFEGRAM's optional local message-history file for this account. It does not delete messages in Telegram or security findings. On-device flash deletion cannot be guaranteed to erase every past copy.",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            alert.addAction(UIAlertAction(title: "Delete local history", style: .destructive, handler: { [weak self, weak node] _ in
+                guard let self else { return }
+                do {
+                    SafeGramSettings.shared.forensicsEnabled = false
+                    try SafeGramForensicsStore.shared.clearHistory(accountId: self.accountId)
+                    node?.refresh()
+                    self.showResult("Local SAFEGRAM history deleted; message-history collection disabled.")
+                } catch {
+                    self.showResult(error.localizedDescription)
+                }
             }))
             self.present(alert, animated: true)
         }

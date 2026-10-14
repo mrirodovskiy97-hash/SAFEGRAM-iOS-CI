@@ -75,6 +75,18 @@ jobs:
           python3 -m unittest -v ci.test_prepare_device_config
           echo "SAFEGRAM MINIMAL CHECKS: OK" | tee safegram-overlay-checks.log
 
+      - name: Swift privacy smoke before expensive simulator build
+        shell: bash
+        run: |
+          set -euo pipefail
+          swiftc -parse overlay/Swiftgram/SafeGramCore/Sources/*.swift overlay/Swiftgram/SafeGramUI/Sources/*.swift
+          swiftc -warnings-as-errors -typecheck overlay/Swiftgram/SafeGramCore/Sources/*.swift
+          swiftc -warnings-as-errors \
+            overlay/Swiftgram/SafeGramCore/Sources/*.swift \
+            ci/privacy-smoke/main.swift \
+            -o "$RUNNER_TEMP/safegram-privacy-smoke"
+          "$RUNNER_TEMP/safegram-privacy-smoke"
+
       - name: Clone pinned AyuGram and apply SAFEGRAM
         shell: bash
         run: |

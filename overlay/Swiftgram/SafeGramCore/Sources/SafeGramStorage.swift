@@ -39,6 +39,16 @@ public final class SafeGramJSONStore<Element: Codable> {
         }
     }
 
+    /// Delete the currently selected account's file, not all SAFEGRAM accounts.
+    /// Filesystem removal is not a guarantee of forensic erasure on flash media.
+    public func clear() throws {
+        try queue.sync {
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+        }
+    }
+
     public var fileURL: URL { url }
 }
 

@@ -21,26 +21,47 @@ public final class SafeGramForensicsStore {
     private init() {}
 
     public func ingest(_ event: SafeGramMessageEvent, accountId: Int64) {
-        guard SafeGramSettings.shared.forensicsEnabled else { return }
-        queue.sync {
-            let store = store(accountId)
-            let alerts = alerts(accountId)
-            var events = store.load(default: [])
-            if let previous = events.last(where: { $0.chatId == event.chatId && $0.messageId == event.messageId }) {
-                if previous.kind == event.kind && previous.text == event.text { return }
-            }
-            events.append(event)
-            if events.count > 50_000 { events.removeFirst(events.count - 50_000) }
-            store.save(events)
+        let retainMessageHistory = SafeGramSettings.shared.forensicsEnabled
+        let inspectForThreats = SafeGramSettings.shared.leakGuardEnabled
+        guard retainMessageHistory || inspectForThreats else { return }
 
-            if SafeGramSettings.shared.leakGuardEnabled {
-                let newAlerts = SafeGramThreatEngine.shared.scan(text: event.text, chatId: event.chatId, messageId: event.messageId)
-                if !newAlerts.isEmpty {
-                    var all = alerts.load(default: [])
-                    all.append(contentsOf: newAlerts)
-                    if all.count > 10_000 { all.removeFirst(all.count - 10_000) }
-                    alerts.save(all)
+        queue.sync {
+            // Store message text only after the user has explicitly opted in.
+            // Disabling message history must not silently disable link and
+            // secret-pattern warnings.
+            if retainMessageHistory {
+                let store = store(accountId)
+                var events = store.load(default: [])
+                if let previous = events.last(where: { $0.chatId == event.chatId && $0.messageId == event.messageId }),
+                   previous.kind == event.kind && previous.text == event.text {
+                    // A replayed event may still need scanning if the warning
+                    // switch was turned on since its first delivery.
+                } else {
+                    events.append(event)
+                    if events.count > 50_000 { events.removeFirst(events.count - 50_000) }
+                    store.save(events)
                 }
+            }
+
+            if inspectForThreats {
+                let newAlerts = SafeGramThreatEngine.shared.scan(text: event.text, chatId: event.chatId, messageId: event.messageId)
+                guard !newAlerts.isEmpty else { return }
+                let alerts = alerts(accountId)
+                var all = alerts.load(default: [])
+                for finding in newAlerts {
+                    // The bridge may receive the same message repeatedly after
+                    // reconnect; avoid multiplying identical warning cards.
+                    if !all.contains(where: {
+                        $0.kind == finding.kind &&
+                        $0.chatId == finding.chatId &&
+                        $0.messageId == finding.messageId &&
+                        $0.detail == finding.detail
+                    }) {
+                        all.append(finding)
+                    }
+                }
+                if all.count > 10_000 { all.removeFirst(all.count - 10_000) }
+                alerts.save(all)
             }
         }
     }
@@ -70,6 +91,13 @@ public final class SafeGramForensicsStore {
             all.append(finding)
             if all.count > 10_000 { all.removeFirst(all.count - 10_000) }
             alerts.save(all)
+        }
+    }
+
+    /// Account-scoped deletion. Does not delete chat messages in Telegram.
+    public func clearHistory(accountId: Int64) throws {
+        try queue.sync {
+            try store(accountId).clear()
         }
     }
 
