@@ -46,4 +46,30 @@ verify(!FileManager.default.fileExists(atPath: historyFile.path), "history file 
 verify(store.findingCount(accountId: accountId) == count, "warnings survive history deletion")
 let findingsFile = SafeGramJSONStore<[SafeGramSecurityFinding]>(filename: "security-findings.json", accountId: accountId)
 try findingsFile.clear()
+// Regression: enabling warnings after a message was saved must rescan replays
+// without duplicating the opt-in plaintext history.
+let replayAccountId = accountId + 1
+settings.forensicsEnabled = true
+settings.leakGuardEnabled = false
+SafeGramEventBridge.shared.messageReceived(
+    accountId: replayAccountId, chatId: 222, messageId: 10,
+    authorId: 42, authorUsername: "test",
+    text: "http://192.0.2.1/replayed", date: Date()
+)
+verify(store.eventCount(accountId: replayAccountId) == 1, "initial history stored")
+verify(store.findingCount(accountId: replayAccountId) == 0, "warning disabled initially")
+settings.leakGuardEnabled = true
+SafeGramEventBridge.shared.messageReceived(
+    accountId: replayAccountId, chatId: 222, messageId: 10,
+    authorId: 42, authorUsername: "test",
+    text: "http://192.0.2.1/replayed", date: Date()
+)
+verify(store.findingCount(accountId: replayAccountId) >= 2, "replayed message scanned after enabling warnings")
+verify(store.eventCount(accountId: replayAccountId) == 1, "replay did not duplicate plaintext history")
+try store.clearHistory(accountId: replayAccountId)
+let replayAlerts = SafeGramJSONStore<[SafeGramSecurityFinding]>(filename: "security-findings.json", accountId: replayAccountId)
+try replayAlerts.clear()
+settings.forensicsEnabled = false
+settings.leakGuardEnabled = true
+
 print("SAFEGRAM PRIVACY SMOKE PASS")

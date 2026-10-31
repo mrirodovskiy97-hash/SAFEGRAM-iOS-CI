@@ -33,8 +33,11 @@ public final class SafeGramEventBridge {
 
     private func ingest(_ event: SafeGramMessageEvent, accountId: Int64) {
         guard SafeGramSettings.shared.enabled else { return }
-        if SafeGramForensicsStore.shared.containsEquivalent(event, accountId: accountId) { return }
+        let isReplay = SafeGramForensicsStore.shared.containsEquivalent(event, accountId: accountId)
+        // Always run the warning scan: leak guard may have been enabled
+        // after this message was first saved. The store deduplicates findings.
         SafeGramForensicsStore.shared.ingest(event, accountId: accountId)
+        if isReplay { return }
         SafeGramRelationshipRadar.shared.ingest(event, accountId: accountId)
         SafeGramIdentityMonitor.shared.ingest(event, accountId: accountId)
         SafeGramCanaryStore.shared.inspect(event, accountId: accountId)

@@ -40,7 +40,10 @@ class DeviceConfigTests(unittest.TestCase):
         self.assertEqual(json.loads(self.output.read_text())["api_hash"], "a" * 32)
         self.assertNotIn("a" * 32, self.status.read_text())
         self.assertNotIn("1234567", self.status.read_text())
-        self.assertEqual(self.output.stat().st_mode & 0o777, 0o600)
+        # POSIX mode bits do not represent Windows NTFS ACLs.
+        # CI runs this security assertion on macOS; Windows must use ACL-specific tests.
+        if os.name == "posix":
+            self.assertEqual(self.output.stat().st_mode & 0o777, 0o600)
 
     def test_partial_secrets_are_rejected(self):
         for key in ("TELEGRAM_API_ID", "TELEGRAM_API_HASH"):
